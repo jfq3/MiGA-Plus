@@ -1,0 +1,121 @@
+---
+title: "Tree/Heatmap Plots"
+author: "John Quensen"
+date: "4/21/2021"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This script details how to make a tree plot based on  ANI distances among genomes and align it to a heatmap of orthologous genes. This aids in interpretation of the tree structure.   
+
+Load packages.  
+
+```{r, tidy=TRUE}
+suppressPackageStartupMessages(library(ape))
+suppressPackageStartupMessages(library(phangorn))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(hablar))
+suppressPackageStartupMessages(library(RDPutils))
+suppressPackageStartupMessages(library(ggtree))
+suppressPackageStartupMessages(library(aplot))
+```
+
+Read in data. Edit the path to the MiGA project in the first line of the next code block. The other paths are those within MiGA's output directory structure.  
+
+```{r, tidy=TRUE}
+# Set path to the MiGA project.
+path_to_miga_project <- "./"
+
+# Read in the ANI tree file.
+path_to_ani_tree <- "data/10.clades/02.ani/"
+ani.tree <- ape::read.tree(paste0(path_to_miga_project, path_to_ani_tree, "miga-project.ani.nwk"))
+
+# Read in the orthologous genes file.
+path_to_ogs <- "data/10.clades/03.ogs/"
+ogs <- read.table(paste0(path_to_miga_project,
+                         path_to_ogs,
+                         "miga-project.ogs"),
+                  header = TRUE,
+                  stringsAsFactors = FALSE,
+                  sep = "\t")
+```
+
+`ogs` is a text file giving the genomes in columns and orthologs in rows. A sample is:  
+
+```{r, tidy=TRUE}
+ogs[1:5, 1:5]
+```
+
+The cell entries are the gene IDs as assigned by MiGA.    
+
+Convert `ogs` to a binary (presence/absence) matrix. Assign arbitrary row names to serve as the ortholog names. Shorten the genome names (row names) to the GenBank assembly accession IDs only.  
+
+```{r, tidy=TRUE}
+ogs.bin <- ogs
+ogs.bin[ogs.bin!="-"] <- 1
+ogs.bin[ogs.bin=="-"] <- 0
+ogs.bin[1:5, 1:5]
+rownames(ogs.bin) <- RDPutils::make_otu_names(1:nrow(ogs.bin))
+rownames(ogs.bin) <- sub("OTU", "OG", rownames(ogs.bin))
+colnames(ogs.bin) <- substring(colnames(ogs.bin), 1, 13)
+ogs.bin[1:5, 1:4]
+```
+
+Convert to a tibble for making the heatmap plot.  
+
+```{r, tidy=TRUE}
+n.cols <- ncol(ogs.bin) + 1
+df.ogs <- ogs.bin %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var = "Gene") %>% 
+  hablar::convert(int(colnames(.)[2:n.cols])) %>% 
+  hablar::convert(fct(Gene)) %>% 
+  tidyr::pivot_longer(-Gene, names_to = "Genome") %>% 
+  tibble::as_tibble()
+
+df.ogs
+```
+
+Make the heatmap plot.  
+
+```{r, tidy=TRUE}
+heatmap.plt <- ggplot(df.ogs, aes(x = Gene, y = Genome, fill = as.factor(value))) +
+  geom_tile() +
+  scale_fill_manual(values = c("white", "blue")) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.line.x.bottom = element_line(size = 0.5),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  theme(legend.position = "none") +
+  ylab(NULL)
+
+heatmap.plt
+```
+
+Trim the tree tip labels to match the genome names in `df.ogs` used to make the heatmap plot and root the tree. Tree tip labels and rows in the heatmap cannot be aligned with `aplot` unless the tree is rooted. A simple solution is to use `phanghorn`'s `midpoint` function.    
+
+```{r, warning=FALSE, message=FALSE, tidy=TRUE}
+ani.tree$tip.label <- substring(ani.tree$tip.label, 1, 13)
+ani.tree <- phangorn::midpoint(ani.tree)
+ani.tree
+```
+
+Make a plot of the tree. Expand the plot so that the tip labels show.   
+ 
+```{r, tidy=TRUE}
+gg_tr <- ggtree(ani.tree) +
+  geom_tiplab(align=TRUE, size=2) +
+  scale_x_continuous(expand=expansion(0,0.05))
+gg_tr
+```
+
+Align the plot by the tip labels, side-by-side. The `aplot` package automatically sizes the plots so that the tree tips and heatmap rows align. The plot can be saved with the `ggsave` function.   
+
+```{r, tidy=TRUE}
+plt <-  heatmap.plt %>% insert_left(gg_tr)
+plt
+ggsave(plt, file = "tee_heatmap.png", width = 7, height = 4)
+```
+

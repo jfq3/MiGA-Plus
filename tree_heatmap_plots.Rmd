@@ -116,6 +116,6 @@ Align the plot by the tip labels, side-by-side. The `aplot` package automaticall
 ```{r, tidy=TRUE}
 plt <-  heatmap.plt %>% insert_left(gg_tr)
 plt
-ggsave(plt, file = "tee_heatmap.png", width = 7, height = 4)
+ggsave(plt, file = "tree_heatmap.png", width = 7, height = 4)
 ```
 

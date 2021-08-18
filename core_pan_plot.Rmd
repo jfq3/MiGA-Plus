@@ -1,0 +1,98 @@
+---
+title: "Core-Pan Plot"
+author: "John Quensen"
+date: "8/17/2021"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Objective: Create a plot of the number of genes (pan genome) and the number of genes in common (core genome) with the increasing number of genomes being compared as in a MiGA clade project.  
+
+Load packages.  
+
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(hablar))
+```
+
+Read in the data file as `a`.  
+
+```{r}
+core_pan <- "./data/10.clades/03.ogs/miga-project.core-pan.tsv"
+a <- read.table(core_pan, sep="\t", header=TRUE)
+```
+
+Create a tibble of the data to plot with the column headings genomes, avg, q_1, q_2, and Genome where Genome is a factor with levels Core and Pan. There may be a fancier way to do this, but I broke the data in `a` into separate parts for core and pan with the headings I wanted and then combined them together.  
+
+```{r}
+a.core <- a %>% 
+  dplyr::select(genomes, core_avg, core_q1, core_q3) %>% 
+  dplyr::mutate(Genome = "Core") %>% 
+  dplyr::rename(avg = core_avg,
+                q1 = core_q1,
+                q3 = core_q3)
+
+a.pan <- a %>% 
+  dplyr::select(genomes, pan_avg, pan_q1, pan_q3) %>% 
+  dplyr::mutate(Genome = "Pan") %>% 
+  dplyr::rename(avg = pan_avg,
+                q1 = pan_q1,
+                q3 = pan_q3)
+```
+
+Combine a.core and a.pan into a tibble and convert Genome from character to factor. For some reason I have never been able to use the forcats package or this purpose, but the hablar package never gives me any trouble.  
+
+```{r}
+df <- rbind(a.core, a.pan) %>% 
+  hablar::convert(fct(Genome))
+
+head(df)
+levels(df$Genome)
+```
+
+Now `df` is in the form I want.  
+
+Create a vector of custom colors to use with ggplot.   
+
+```{r}
+my.colors <- c("cadetblue1", "rosybrown2")
+```
+
+Now make the plot. Sometimes it is better to start with an empty ggplot call and then add layers, especially when the data and/or geoms are different for the different layers.  
+
+```{r}
+ggplot() +
+  scale_x_continuous(breaks = seq(0,max(df$genomes)*1.05,2)) +
+  scale_y_continuous(breaks = seq(0,max(df$q3)*1.05,500),limits = c(0,max(a$pan_q3)*1.05)) +
+  geom_ribbon(data = df, aes(x=genomes, ymin = q1, ymax = q3, fill = Genome))  +
+  geom_line(data = dplyr::filter(df, Genome == "Pan"),
+            aes(x=genomes, y=avg), color = "black", linetype = "dotdash") +
+  geom_line(data =  dplyr::filter(df, Genome == "Core"),
+            aes(x=genomes, y=avg), color = "black", linetype = "dotdash") + 
+  labs(x="Genomes", y="Orthologous Groups") +
+  scale_fill_manual(values = my.colors, aesthetics = "fill") +
+  theme_bw() +
+  theme(legend.position = c(0.1, 0.9),
+        panel.grid = element_blank())
+```
+
+I used the scale_*_continuous lines to set the axis ticks and labels.  
+
+I used geom_ribbon to plot the areas between q_1 and q_3 for each value of genomes. Including fill = Genome inside the aes parentheses caused separate ribbons to be plotted for each level of Genome.  
+
+I plotted the averages with geom_line, but I had to filter the data in order to draw separate lines for each level of Genome. Putting color = Genome inside the aes parentheses would cause separate lines to be drawn, but that would look bad. I preferred to use the same line color for each. I set the linetype to "dotdash" just to be different. I could have left it solid. The lines have to be plotted after the ribbons so that the ribbons do not hide the lines.  
+
+labs changes the text for the axis titles.   
+
+scale_fill_manual causes the colors in my.colors to be used to fill the ribbons instead of ggplot2 default colors.  
+
+Many themes you can be used with ggplot2; theme_bw is a simpler one in black and white only - no shades of gray.  
+
+Further changes to the theme have to be made last. I moved the legend to the upper left by specifying coordinates 0.1 and 0.9. These are in proportions of the plot canvas; x = 0.1 and y = 0.9. You have to experiment a bit to get them right.  
+
+I removed the grid lines. You do not have to remove the major and minor grid lines separately, you can remove both at once as I did.  

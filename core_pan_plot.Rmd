@@ -31,17 +31,19 @@ Create a tibble of the data to plot with the column headings genomes, avg, q_1, 
 
 ```{r}
 a.core <- a %>% 
-  dplyr::select(genomes, core_avg, core_q1, core_q3) %>% 
+  dplyr::select(genomes, core_avg, core_q1, core_q2, core_q3) %>% 
   dplyr::mutate(Genome = "Core") %>% 
-  dplyr::rename(avg = core_avg,
+  dplyr::rename(Average = core_avg,
                 q1 = core_q1,
+                Median = core_q2,
                 q3 = core_q3)
 
 a.pan <- a %>% 
-  dplyr::select(genomes, pan_avg, pan_q1, pan_q3) %>% 
+  dplyr::select(genomes, pan_avg, pan_q1, pan_q2, pan_q3) %>% 
   dplyr::mutate(Genome = "Pan") %>% 
-  dplyr::rename(avg = pan_avg,
+  dplyr::rename(Average = pan_avg,
                 q1 = pan_q1,
+                Median = pan_q2,
                 q3 = pan_q3)
 ```
 
@@ -57,6 +59,16 @@ levels(df$Genome)
 
 Now `df` is in the form I want.  
 
+Make separate df's for lines and ribbons.  
+
+```{r}
+df.ribbon <- df %>% dplyr::select(genomes, q1, q3, Genome)
+df.ribbon
+df.lines <- df %>% dplyr::select(genomes, Average, Median, Genome) %>% 
+  pivot_longer(cols = c(Average, Median), names_to = "cntr")
+df.lines
+```
+
 Create a vector of custom colors to use with ggplot.   
 
 ```{r}
@@ -69,15 +81,17 @@ Now make the plot. Sometimes it is better to start with an empty ggplot call and
 ggplot() +
   scale_x_continuous(breaks = seq(0,max(df$genomes)*1.05,2)) +
   scale_y_continuous(breaks = seq(0,max(df$q3)*1.05,500),limits = c(0,max(a$pan_q3)*1.05)) +
-  geom_ribbon(data = df, aes(x=genomes, ymin = q1, ymax = q3, fill = Genome))  +
-  geom_line(data = dplyr::filter(df, Genome == "Pan"),
-            aes(x=genomes, y=avg), color = "black", linetype = "dotdash") +
-  geom_line(data =  dplyr::filter(df, Genome == "Core"),
-            aes(x=genomes, y=avg), color = "black", linetype = "dotdash") + 
+  geom_ribbon(data = df.ribbon, aes(x=genomes, ymin = q1, ymax = q3, fill = Genome))  +
+  geom_line(data = dplyr::filter(df.lines, Genome == "Pan"),
+            aes(x=genomes, y=value, linetype = cntr)) +
+  geom_line(data =  dplyr::filter(df.lines, Genome == "Core"),
+            aes(x=genomes, y=value, linetype = cntr)) + 
   labs(x="Genomes", y="Orthologous Groups") +
   scale_fill_manual(values = my.colors, aesthetics = "fill") +
   theme_bw() +
-  theme(legend.position = c(0.1, 0.9),
+  theme(legend.position = c(0.2, 0.9),
+        legend.title = element_blank(),
+        legend.box = "horizontal",
         panel.grid = element_blank())
 ```
 

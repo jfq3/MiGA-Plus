@@ -1,0 +1,148 @@
+---
+title: "ANI Distace vs. Shared OGs"
+author: "John Quensen"
+date: "9/20/2021"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Question: What is the relationship between ANI distances between genomes and the number of OGs (orthologous genes) that they share? Make a scatter plot for all pairwise comparisons in Jose Rodrigues' data of cattle and clinical *Campylobacter* genomes.  
+
+Load packages.  
+```{r}
+suppressPackageStartupMessages(library(vegan))
+suppressPackageStartupMessages(library(RDPutils))
+suppressPackageStartupMessages(library(QsNullModels))
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+Include a function for converting a distance matrix into table form.  
+
+```{r}
+dist_pairs <- function(d) {
+  m <- as.matrix(d)
+  xy <- t(combn(colnames(m), 2))
+  d.pair <- data.frame(xy, dist=m[xy])
+  return(d.pair)
+}
+```
+
+And another function for converting the OGS table into binary form. I wrote this one before for making the OGs heatmap plots.  
+
+```{r}
+ogs2bin <- function(ogs) {
+  ogs.bin <- ogs
+  ogs.bin[ogs.bin!="-"] <- 1
+  ogs.bin[ogs.bin=="-"] <- 0
+  rownames(ogs.bin) <- RDPutils::make_otu_names(1:nrow(ogs.bin))
+  rownames(ogs.bin) <- sub("OTU", "OG", rownames(ogs.bin))
+  return(ogs.bin)
+}
+```
+
+Read in the ANI distance matrix and the ortholog table from the MiGA project.  
+
+```{r}
+load("D:/data/github/MiGA-Plus/extra_data/jose-miga-project.dist.rdata")
+ogs <- read.table("extra_data/jose-miga-project.ogs",
+                  header = TRUE,
+                  stringsAsFactors = FALSE,
+                  sep = "\t")
+```
+
+Convert the distance matrix into tabular form.  
+
+```{r}
+d.pairs <- dist_pairs(ani.d) %>%
+  as_tibble()
+d.pairs
+```
+
+This gives the proper number of rows; the combination of 286 genomes taken 2 at a time is 40,755.  
+
+Convert the OGs table into binary form.  
+
+```{r}
+ogs.bin <- ogs2bin(ogs) %>% 
+  as_tibble()
+ogs.bin
+```
+
+I then used two functions I wrote previously from QsNullModels. The first calculates the number of shared species (OGS in this case) between all samples (genomes in this case). The result is a vector. I used the second function to put the vector output from the first into the same form as a distance matrix. I could then use the `dist_pairs()` function to make a tabular table of pairwise shared OGs.  
+
+```{r}
+t.ogs.bin <- t(ogs.bin)
+shared.ogs.vector <- QsNullModels::shared_spp(t.ogs.bin)
+shared.ogs.matrix <- QsNullModels::stat2dist(t.ogs.bin, shared.ogs.vector)
+paired.shared.ogs <- dist_pairs(shared.ogs.matrix) %>% 
+rename(shared_ogs = dist) %>% 
+as_tibble()
+paired.shared.ogs
+```
+
+In order to merge `dist_pairs` and `paired.shared.ogs`, I created another variable `line_name` by pasting entries in columns X1 and X2 together.  
+
+```{r}
+paired.shared.ogs <- paired.shared.ogs %>% 
+  mutate(line_name = paste(X1, X2, sep = "_")) %>% 
+  dplyr::select(line_name, shared_ogs) %>% 
+  as_tibble()
+paired.shared.ogs
+
+paired.distances <- d.pairs %>% 
+  mutate(line_name = paste(X1, X2, sep = "_")) %>% 
+  dplyr::select(line_name, dist) %>% 
+                  as_tibble()
+paired.distances
+```
+
+But when I tried to join these two tibbles, I encountered a problem.  
+
+```{r}
+df2plt <- full_join(paired.distances, paired.shared.ogs)
+df2plt
+```
+
+There were too many rows. Why? Investigating, I determined that it was because some values of X1 and X2 were reversed between the two tibbles. (I still do not understand how this happens.)   
+
+```{r}
+a <- length(intersect(paired.distances$line_name, paired.shared.ogs$line_name))
+b <- length(setdiff(paired.distances$line_name, paired.shared.ogs$line_name))
+a
+b
+a+b
+```
+
+To rectify the problem, I set aside rows from `paired.distances` for which `line_names` did match those in `paired.shared.ogs`, reversed the order of X1 and X2 in those that did not, and then recombined the two to create a "patched" `paired.distances` which could be successfully joined with `paired.shared.ogs`.  
+
+```{r}
+a <- anti_join(paired.distances, paired.shared.ogs)
+b <- semi_join(paired.distances, paired.shared.ogs)
+a
+b
+c <- a %>% 
+  tidyr::separate(line_name, c("A", "B"), sep="_") %>% 
+  mutate(line_name = paste(B, A, sep = "_")) %>% 
+  select(line_name, dist) %>% 
+  rbind(b)
+c
+df2plt <- full_join(c, paired.shared.ogs)
+df2plt
+```
+
+I then made a scatter plot between `dist` and `shared_ogs`.  
+
+```{r}
+ggplot(data = df2plt, aes(x=dist, y = shared_ogs)) +
+  geom_point() +
+  geom_smooth() +
+  xlab("ANI Distance between Genomes") +
+  ylab("OGs Shared between Genomes") +
+  ggtitle("286 Campylobacter Genomes from Cattle & Humans")
+```
+
